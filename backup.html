@@ -1,0 +1,2026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhantomBlock 3D Digital Twin</title>
+
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #34394D;
+    color: #eef2ff;
+    font-family: Arial, sans-serif;
+}
+
+#panel {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    padding: 14px;
+    width: 270px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    box-sizing: border-box;
+    background: rgba(23, 31, 52, 0.95);
+    border: 1px solid #6577a8;
+    border-radius: 14px;
+}
+
+h2 {
+    margin-top: 0;
+    color: #b8c7ff;
+}
+
+button {
+    margin: 4px;
+    padding: 9px 11px;
+    border: 1px solid #6577a8;
+    border-radius: 8px;
+    background: #273552;
+    color: white;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #405581;
+}
+
+#status {
+    color: #a8e6cf;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+#instructions {
+    color: #c4cbe0;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+#error {
+    display: none;
+    position: absolute;
+    z-index: 20;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    padding: 12px;
+    background: #351d2a;
+    color: white;
+    white-space: pre-wrap;
+}
+
+#liftDashboard {
+    margin: 12px 0;
+    padding: 10px;
+    border: 1px solid #6577a8;
+    border-radius: 10px;
+    background: rgba(13, 20, 37, 0.85);
+}
+
+#liftDashboard h3 {
+    margin: 0 0 10px;
+    color: #b8c7ff;
+    font-size: 15px;
+}
+
+#lift1Status,
+#lift2Status {
+    margin: 8px 0;
+    padding: 9px;
+    border-radius: 7px;
+    background: #273552;
+    color: #e5edff;
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-line;
+}
+
+</style>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+}
+</script>
+</head>
+
+<body>
+
+<div id="panel">
+    <h2>👻 PhantomBlock</h2>
+    <p>3D Building Simulation</p>
+    <p id="status">Initialising...</p>
+
+    <div id="videoDashboard" style="margin:12px 0;padding:10px;border:1px solid #6577a8;border-radius:10px;background:rgba(13,20,37,.85)">
+        <h3 style="margin:0 0 8px;color:#b8c7ff;font-size:15px">📹 Video occupancy</h3>
+       <label style="display:block;font-size:11px;margin:7px 0 3px;color:#c4cbe0">1. Occupancy CSV</label>
+       <input id="videoJsonFile" type="file"
+       accept=".csv,.json,text/csv,application/json"
+       style="width:100%;font-size:11px;color:#e5edff">
+       <label style="display:block;font-size:11px;margin:10px 0 3px;color:#c4cbe0">2. Individual detections CSV</label>
+       <input id="detectionsCsvFile" type="file" accept=".csv,text/csv"
+       style="width:100%;font-size:11px;color:#e5edff">
+       <div id="videoStatus" style="font-size:12px;line-height:1.6;margin-top:8px">Load the occupancy CSV and detections CSV to begin.</div>
+       <div style="margin-top:10px;padding:8px;background:#18243b;border-radius:8px">
+         <label for="videoTimeSlider" style="display:block;font-size:12px;color:#e5edff">Video time: <span id="videoTimeLabel">0.0 s</span></label>
+         <input id="videoTimeSlider" type="range" min="0" max="0" value="0" step="1" style="width:100%;margin-top:7px" disabled>
+         <small id="videoGhostCount" style="color:#c4cbe0">No video ghosts loaded.</small>
+       </div>
+       <div style="margin-top:9px;padding:8px;background:#18243b;border-radius:8px">
+         <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:#e5edff">
+           <input id="heatmapToggle" type="checkbox" checked>
+           Show spatial congestion heatmap
+         </label>
+         <div style="display:flex;justify-content:space-between;gap:4px;margin-top:8px;font-size:10px;color:#c4cbe0">
+           <span>Low</span><span style="color:#64b5f6">●</span><span style="color:#69f0ae">●</span><span style="color:#ffe66d">●</span><span style="color:#ff5c79">●</span><span>High</span>
+         </div>
+         <small style="display:block;color:#9eaccb;margin-top:5px">Relative concentration estimated from detected person positions.</small>
+       </div>
+        <canvas id="occupancyChart" width="520" height="190" style="width:100%;height:auto;margin-top:8px;background:#18243b;border-radius:8px"></canvas>
+        <small style="color:#c4cbe0">Chart shows the selected floor's observed people count over time.</small>
+    </div>
+
+    <div id="liftDashboard">
+        <h3>🛗 Elevator Control</h3>
+        <div id="lift1Status">Lift A: Initialising...</div>
+        <div id="lift2Status">Lift B: Initialising...</div>
+    </div>
+
+    <div>
+        <button data-floor="1">Floor 1</button>
+        <button data-floor="2">Floor 2</button>
+        <button data-floor="3">Floor 3</button>
+        <button data-floor="4">Floor 4</button>
+        <button data-floor="5">Floor 5</button>
+        <button data-floor="6">Floor 6</button>
+        <button data-floor="7">Floor 7</button>
+        <button id="allFloors">Show All</button>
+    </div>
+
+    <p id="instructions">
+        Drag to rotate.<br>
+        Scroll or pinch to zoom.<br>
+        Select a floor to isolate it.<br>
+        Tap a coloured zone to inspect it.
+    </p>
+
+    <small>Prototype geometry and passenger behaviour.</small>
+</div>
+
+<div id="error"></div>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from
+    "three/addons/controls/OrbitControls.js";
+
+const errorBox = document.getElementById("error");
+
+try {
+    // ==================================================
+    // 1. SCENE
+    // ==================================================
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x34394D);
+
+    const camera = new THREE.PerspectiveCamera(
+        50,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+    );
+
+    camera.position.set(18, 15, 24);
+
+    const renderer = new THREE.WebGLRenderer({
+        antialias: true
+    });
+
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.target.set(0, 7, 0);
+    controls.minDistance = 5;
+    controls.maxDistance = 60;
+
+    scene.add(new THREE.HemisphereLight(
+        0xDCD7E8, 0x66566A, 1.6
+    ));
+
+    const sunlight = new THREE.DirectionalLight(0xFFE1B5, 2);
+    sunlight.position.set(10, 20, 15);
+    scene.add(sunlight);
+
+    const grid = new THREE.GridHelper(
+        40, 40, 0x52658c, 0x29364f
+    );
+    grid.position.y = -0.1;
+    scene.add(grid);
+
+    const building = new THREE.Group();
+    scene.add(building);
+
+    const floors = [];
+    const ghostGroups = [];
+    const elevators = [];
+    const spaceZones = [];
+    let videoObservations = [];
+    let videoDetections = [];
+    const videoGhostGroups = [];
+    let videoTimestamps = [];
+    const heatmapGroups = new Map();
+    const heatmapCells = new Map();
+    const HEATMAP_COLUMNS = 8;
+    const HEATMAP_ROWS = 6;
+    const HEATMAP_BOUNDS = { minX: -6, maxX: 6, minZ: -4, maxZ: 4 };
+
+    const floorHeight = 2;
+    let selectedFloor = null;
+
+    const floorColors = [
+        0x91B7D5,
+        0xA6C9A4,
+        0xD9CB91,
+        0xD8A47F,
+        0xC98787,
+        0xA99CC8,
+        0x8CBDB7
+    ];
+
+    const facilityColors = {
+        toilet: 0x91B7D5,
+        canteen: 0xE9B872,
+        office: 0xA6C9A4,
+        faculty: 0xC4A7E7
+    };
+
+    const elevatorConfig = {
+        shaftWidth: 1.55,
+        shaftDepth: 1.55,
+        travelSpeed: 1.8,
+        capacity: 4,
+        positions: [
+            { x: -2.2, z: 0 },
+            { x:  2.2, z: 0 }
+        ]
+    };
+
+    const floorY = floorNumber =>
+        (floorNumber - 1) * floorHeight;
+
+    const carY = floorNumber =>
+        floorY(floorNumber) + 0.85;
+
+    // ==================================================
+    // 2. BUILDING HELPERS
+    // ==================================================
+
+    const wallMaterial = new THREE.MeshStandardMaterial({
+        color: 0xd9d0c5,
+        roughness: 0.95,
+        transparent: true,
+        opacity: 0.88
+    });
+
+    const cubicleMaterial = new THREE.MeshStandardMaterial({
+        color: 0xa6c9a4,
+        roughness: 0.95
+    });
+
+    const furnitureMaterial = new THREE.MeshStandardMaterial({
+        color: 0x9b806b,
+        roughness: 0.9
+    });
+
+    function addZone(
+        floor, name, x, z, width, depth, color, floorNumber
+    ) {
+        const zone = new THREE.Mesh(
+            new THREE.BoxGeometry(width, 0.035, depth),
+            new THREE.MeshStandardMaterial({
+                color,
+                transparent: true,
+                opacity: 0.38,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            })
+        );
+
+        zone.position.set(x, 0.04, z);
+        zone.userData.spaceName = name;
+        zone.userData.floorNumber = floorNumber;
+
+        floor.add(zone);
+        spaceZones.push(zone);
+    }
+
+    function addWall(
+        floor, x, z, width, depth, height = 0.8,
+        material = wallMaterial
+    ) {
+        const wall = new THREE.Mesh(
+            new THREE.BoxGeometry(width, height, depth),
+            material
+        );
+
+        wall.position.set(x, height / 2 + 0.08, z);
+        floor.add(wall);
+    }
+
+    function addCubicle(floor, x, z) {
+        const cubicle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.65, 0.7, 0.65),
+            cubicleMaterial
+        );
+
+        cubicle.position.set(x, 0.48, z);
+        floor.add(cubicle);
+    }
+
+    function addDesk(floor, x, z, width = 0.65, depth = 0.4) {
+        const desk = new THREE.Mesh(
+            new THREE.BoxGeometry(width, 0.12, depth),
+            furnitureMaterial
+        );
+
+        desk.position.set(x, 0.22, z);
+        floor.add(desk);
+    }
+function addEntrance(floor, z, label, isMain = false) {
+    const width = isMain ? 2.8 : 2.2;
+    const height = 2.3;
+    const thickness = 0.22;
+
+    const material = new THREE.MeshStandardMaterial({
+        color: isMain ? 0xD99B45 : 0x55A6C8,
+        roughness: 0.5,
+        emissive: isMain ? 0x442200 : 0x002233
+    });
+
+    const entranceZ = z < 0 ? z - 0.18 : z + 0.18;
+
+    // Two prominent entrance pillars
+    for (const side of [-1, 1]) {
+        const pillar = new THREE.Mesh(
+            new THREE.BoxGeometry(thickness, height, thickness),
+            material
+        );
+
+        pillar.position.set(
+            side * width / 2,
+            height / 2,
+            entranceZ
+        );
+
+        floor.add(pillar);
+    }
+
+    // Top beam
+    const beam = new THREE.Mesh(
+        new THREE.BoxGeometry(width + thickness, thickness, thickness),
+        material
+    );
+
+    beam.position.set(0, height + thickness / 2, entranceZ);
+    floor.add(beam);
+}
+function addRamp(floor, isFront = true) {
+    const width = 3.6;
+    const innerZ = isFront ? -4.05 : 4.05;
+    const outerZ = isFront ? -7.2 : 7.2;
+    const innerY = 0.03;
+    const outerY = -0.45;
+
+    const geometry = new THREE.BufferGeometry();
+
+    const vertices = [
+        -width / 2, innerY, innerZ,
+         width / 2, innerY, innerZ,
+        -width / 2, outerY, outerZ,
+         width / 2, outerY, outerZ
+    ];
+
+    geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(vertices, 3)
+    );
+
+    geometry.setIndex([0, 2, 1, 1, 2, 3]);
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshStandardMaterial({
+        color: isFront ? 0xD6A45D : 0x65A9C4,
+        roughness: 0.8,
+        side: THREE.DoubleSide
+    });
+
+    const ramp = new THREE.Mesh(geometry, material);
+    floor.add(ramp);
+}
+
+    // ==================================================
+    // 3. SEVEN FLOORS AND FACILITIES
+    // ==================================================
+
+    for (let i = 0; i < 7; i++) {
+        const floorNumber = i + 1;
+        const floor = new THREE.Group();
+        floor.position.y = floorY(floorNumber);
+
+        const shape = new THREE.Shape();
+        shape.moveTo(-6, -4);
+        shape.lineTo(6, -4);
+        shape.lineTo(6, 4);
+        shape.lineTo(-6, 4);
+        shape.lineTo(-6, -4);
+
+        // Illustrative atrium opening; dimensions are provisional.
+        const hole = new THREE.Path();
+        hole.moveTo(-1.6, -1.2);
+        hole.lineTo(-1.6, 1.2);
+        hole.lineTo(1.6, 1.2);
+        hole.lineTo(1.6, -1.2);
+        hole.lineTo(-1.6, -1.2);
+        shape.holes.push(hole);
+
+        const slabGeometry = new THREE.ShapeGeometry(shape);
+        slabGeometry.rotateX(-Math.PI / 2);
+
+        const slab = new THREE.Mesh(
+            slabGeometry,
+            new THREE.MeshStandardMaterial({
+                color: floorColors[i],
+                transparent: true,
+                opacity: 0.42,
+                roughness: 0.95,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            })
+        );
+
+        floor.add(slab);
+
+        const outlinePoints = [
+            [-6, -4], [6, -4], [6, 4],
+            [-6, 4], [-6, -4]
+        ].map(([x, z]) => new THREE.Vector3(x, 0.02, z));
+
+        floor.add(new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(outlinePoints),
+            new THREE.LineBasicMaterial({
+                color: 0xC4B9B0,
+                transparent: true,
+                opacity: 0.75
+            })
+        ));
+
+        const columnGeometry = new THREE.BoxGeometry(
+            0.35, floorHeight, 0.35
+        );
+
+        const columnMaterial = new THREE.MeshStandardMaterial({
+            color: 0x9eacc9,
+            transparent: true,
+            opacity: 0.8
+        });
+
+        for (const x of [-5.6, 5.6]) {
+            for (const z of [-3.6, 3.6]) {
+                const column = new THREE.Mesh(
+                    columnGeometry, columnMaterial
+                );
+
+                column.position.set(x, floorHeight / 2, z);
+                floor.add(column);
+           
+ } 
+
+        }
+
+        // Provisional classroom and laboratory partitions.
+        addWall(floor, -3.7, -2.7, 3.8, 0.12);
+        addWall(floor, -5.5, -1.8, 0.12, 1.8);
+        addWall(floor, -2.0, -1.8, 0.12, 1.8);
+
+        addWall(floor, 3.7, 2.7, 3.8, 0.12);
+        addWall(floor, 5.5, 1.8, 0.12, 1.8);
+        addWall(floor, 2.0, 1.8, 0.12, 1.8);
+
+        for (const x of [2.8, 3.8, 4.8]) {
+            addCubicle(floor, x, 2.0);
+            addCubicle(floor, x, 3.35);
+        }
+
+        addZone(
+            floor, "Classroom zone", -3.8, 0,
+            2.8, 2.2, 0x91B7D5, floorNumber
+        );
+
+        addZone(
+            floor, "Computer lab zone", 3.8, 0,
+            2.8, 2.2, 0xA6C9A4, floorNumber
+        );
+
+        addZone(
+            floor, "Discussion room zone", 0, 2.8,
+            2.4, 1.0, 0xD9CB91, floorNumber
+        );
+
+        // ==============================================
+        // TOILETS: four spaces on every floor.
+        // The positions are provisional.
+        // ==============================================
+
+        const toiletPositions = [
+            [-4.75, -3.15],
+            [-3.55, -3.15],
+            [ 3.55, -3.15],
+            [ 4.75, -3.15]
+        ];
+
+        toiletPositions.forEach(([x, z], index) => {
+            addWall(floor, x, z, 0.9, 0.08, 0.65);
+
+            addZone(
+                floor,
+                "Toilet " + (index + 1),
+                x, z, 1.05, 0.95,
+                facilityColors.toilet,
+                floorNumber
+            );
+        });
+
+        // ==============================================
+        // OFFICES: one office zone on every floor.
+        // Represented as a bank of cubicles.
+        // ==============================================
+
+        addZone(
+            floor,
+            "Office — Floor " + floorNumber,
+            2.7, -0.9, 2.7, 1.65,
+            facilityColors.office,
+            floorNumber
+        );
+
+        for (const x of [1.8, 2.7, 3.6]) {
+            for (const z of [-1.3, -0.5]) {
+                addCubicle(floor, x, z);
+                addDesk(floor, x, z);
+            }
+        }
+
+        // ==============================================
+        // CANTEENS: two on Floor 1 and one on Floor 6.
+        // ==============================================
+
+        if (floorNumber === 1) {
+            addZone(
+                floor, "Canteen 1 — Floor 1",
+                -4.1, 1.6, 1.55, 1.55,
+                facilityColors.canteen, floorNumber
+            );
+
+            addZone(
+                floor, "Canteen 2 — Floor 1",
+                4.1, -0.8, 1.55, 1.55,
+                facilityColors.canteen, floorNumber
+            );
+        }
+
+        if (floorNumber === 6) {
+            addZone(
+                floor, "Canteen 3 — Floor 6",
+                -4.1, 1.6, 1.8, 1.55,
+                facilityColors.canteen, floorNumber
+            );
+        }
+
+        // ==============================================
+        // FACULTY AREAS: Floors 1 and 7.
+        // Cubicle-style workstations.
+        // ==============================================
+
+        if (floorNumber === 1 || floorNumber === 7) {
+            addZone(
+                floor,
+                "Faculty Area — Floor " + floorNumber,
+                0, -2.7, 2.5, 1.0,
+                facilityColors.faculty, floorNumber
+            );
+
+            for (const x of [-0.8, 0, 0.8]) {
+                addCubicle(floor, x, -2.7);
+                addDesk(floor, x, -2.7);
+            }
+        }
+
+        floor.userData.floorNumber = floorNumber;
+        building.add(floor);
+        floors.push(floor);
+addEntrance(floors[0], -4, "MAIN ENTRANCE", true);
+addEntrance(floors[0], 4, "SECONDARY ENTRANCE", false);
+addRamp(floors[0], true);   // Front ramp
+addRamp(floors[0], false);  // Back ramp
+    }
+
+    // ==================================================
+    // 4. GHOSTS AND CORRIDOR ROUTES
+    // ==================================================
+
+    const corridorNodes = [
+        [-4.5, -3.2],
+        [-2.0, -3.2],
+        [ 0.0, -3.2],
+        [ 2.0, -3.2],
+        [ 4.5, -3.2],
+        [ 4.5, -1.0],
+        [ 4.5,  1.0],
+        [ 4.5,  3.2],
+        [ 2.0,  3.2],
+        [ 0.0,  3.2],
+        [-2.0,  3.2],
+        [-4.5,  3.2],
+        [-4.5,  1.0],
+        [-4.5, -1.0]
+    ];
+
+    const ghostColors = {
+        BLUE: 0x64b5f6,
+        GREEN: 0x69f0ae,
+        YELLOW: 0xffe66d,
+        ORANGE: 0xffa45c,
+        RED: 0xff5c79
+    };
+
+    function createGhost(x, y, z, floorNumber, congestion) {
+        const ghost = new THREE.Group();
+        const color = ghostColors[congestion] ?? ghostColors.GREEN;
+
+        const bodyMaterial = new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 0.16,
+            transparent: true,
+            opacity: 0.88,
+            roughness: 0.9
+        });
+
+        const body = new THREE.Mesh(
+            new THREE.SphereGeometry(
+                0.32, 20, 16, 0,
+                Math.PI * 2, 0, Math.PI * 0.78
+            ),
+            bodyMaterial
+        );
+
+        body.position.y = 0.12;
+        ghost.add(body);
+
+        const skirt = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.32, 0.28, 0.24, 20),
+            bodyMaterial
+        );
+
+        skirt.position.y = -0.12;
+        ghost.add(skirt);
+
+        const eyeGeometry = new THREE.SphereGeometry(0.045, 10, 10);
+        const eyeMaterial = new THREE.MeshBasicMaterial({
+            color: 0x172039
+        });
+
+        for (const eyeX of [-0.105, 0.105]) {
+            const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            eye.position.set(eyeX, 0.16, 0.27);
+            ghost.add(eye);
+        }
+
+        let nearestNode = 0;
+        let nearestDistance = Infinity;
+
+        corridorNodes.forEach((node, index) => {
+            const distance = Math.hypot(
+                x - node[0], z - node[1]
+            );
+
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestNode = index;
+            }
+        });
+
+        let destinationFloor =
+            Math.floor(Math.random() * 7) + 1;
+
+        if (destinationFloor === floorNumber) {
+            destinationFloor = floorNumber === 7
+                ? 1
+                : floorNumber + 1;
+        }
+
+        ghost.userData = {
+            floorNumber,
+            bodyMaterial,
+            demoCongestion: congestion,
+            destinationFloor,
+            passengerState: "walking",
+            assignedElevator: null,
+            waitingSince: null,
+            totalWaitTime: 0,
+            lastWaitTime: 0,
+            baseY: y,
+            phase: Math.random() * Math.PI * 2,
+            routeNode: nearestNode,
+            targetNode: nearestNode,
+            routeDirection: 1,
+            speed: 0.9 + Math.random() * 0.7,
+            waitUntil: 0,
+            moving: false,
+            liftRequestCooldown: 0
+        };
+
+        ghost.position.set(
+            corridorNodes[nearestNode][0],
+            y,
+            corridorNodes[nearestNode][1]
+        );
+
+        ghostGroups.push(ghost);
+        building.add(ghost);
+    }
+
+    const demoCongestion = [
+        ["GREEN", "GREEN", "YELLOW"],
+        ["BLUE", "GREEN", "GREEN"],
+        ["YELLOW", "ORANGE", "YELLOW"],
+        ["GREEN", "YELLOW", "GREEN"],
+        ["ORANGE", "RED", "ORANGE"],
+        ["BLUE", "GREEN", "YELLOW"],
+        ["GREEN", "GREEN", "BLUE"]
+    ];
+
+    for (let i = 0; i < 7; i++) {
+        for (let j = 0; j < 3; j++) {
+            createGhost(
+                -3.5 + j * 3.5,
+                floorY(i + 1) + 0.55,
+                j % 2 === 0 ? -1.5 : 1.5,
+                i + 1,
+                demoCongestion[i][j]
+            );
+        }
+    }
+    // ==================================================
+    // 5. TWO ELEVATORS
+    // ==================================================
+
+    function createElevators() {
+        const shaftHeight = 7 * floorHeight;
+
+        const shaftMaterial = new THREE.MeshStandardMaterial({
+            color: 0x8793A8,
+            transparent: true,
+            opacity: 0.16,
+            metalness: 0.25,
+            roughness: 0.6
+        });
+
+        const carMaterial = new THREE.MeshStandardMaterial({
+            color: 0xB8D8F0,
+            metalness: 0.2,
+            roughness: 0.45
+        });
+
+        const doorMaterial = new THREE.MeshStandardMaterial({
+            color: 0x34394D,
+            metalness: 0.35,
+            roughness: 0.4
+        });
+
+        elevatorConfig.positions.forEach((pos, index) => {
+            const shaft = new THREE.Mesh(
+                new THREE.BoxGeometry(
+                    elevatorConfig.shaftWidth,
+                    shaftHeight,
+                    elevatorConfig.shaftDepth
+                ),
+                shaftMaterial
+            );
+
+            shaft.position.set(pos.x, shaftHeight / 2, pos.z);
+            building.add(shaft);
+
+            const car = new THREE.Group();
+
+            const cabinFloor = new THREE.Mesh(
+                new THREE.BoxGeometry(1.25, 0.08, 1.25),
+                carMaterial
+            );
+
+            cabinFloor.position.y = -0.49;
+            car.add(cabinFloor);
+
+            const backWall = new THREE.Mesh(
+                new THREE.BoxGeometry(1.25, 1.05, 0.07),
+                carMaterial
+            );
+
+            backWall.position.set(0, 0.025, -0.59);
+            car.add(backWall);
+
+            for (const sideX of [-0.59, 0.59]) {
+                const sideWall = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.07, 1.05, 1.25),
+                    carMaterial
+                );
+
+                sideWall.position.set(sideX, 0.025, 0);
+                car.add(sideWall);
+            }
+
+            const doors = [];
+
+            for (const side of [-1, 1]) {
+                const door = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.6, 0.96, 0.055),
+                    doorMaterial
+                );
+
+                door.position.set(side * 0.30, 0.02, 0.60);
+                car.add(door);
+                doors.push({ mesh: door, side });
+            }
+
+            car.position.set(pos.x, carY(1), pos.z);
+            building.add(car);
+
+            elevators.push({
+                index,
+                car,
+                doors,
+                currentFloor: 1,
+                targetFloor: 1,
+                nextStopFloor: null,
+                speed: elevatorConfig.travelSpeed,
+                moving: false,
+                doorsOpen: false,
+                dwellUntil: 0,
+                passengers: [],
+                completedWaitTimes: [],
+                waitingPassengers: Array.from(
+                    { length: 7 }, () => []
+                )
+            });
+        });
+    }
+
+    createElevators();
+    initialiseHeatmap();
+
+    // ==================================================
+    // VIDEO DATA: JSON IMPORT, FLOOR COLOURS AND GRAPH
+    // ==================================================
+
+    // Video-driven ghosts are kept separate from simulation passengers.
+    // The current mapping assumes the camera's left/right and top/bottom
+    // directions match the floor's X/Z orientation.
+
+    // Spatial heatmap: sampled detections grouped into floor-grid cells.
+    // This represents relative concentration, not calibrated people per m².
+    function initialiseHeatmap() {
+        for (let floorNumber = 1; floorNumber <= 7; floorNumber++) {
+            const group = new THREE.Group();
+            group.name = "VideoHeatmap_Floor_" + floorNumber;
+            group.position.y = floorY(floorNumber) + 0.035;
+            group.visible = false;
+            building.add(group);
+            heatmapGroups.set(floorNumber, group);
+
+            const cells = [];
+            const cellWidth = 12 / HEATMAP_COLUMNS;
+            const cellDepth = 8 / HEATMAP_ROWS;
+
+            for (let row = 0; row < HEATMAP_ROWS; row++) {
+                for (let column = 0; column < HEATMAP_COLUMNS; column++) {
+                    const geometry = new THREE.PlaneGeometry(
+                        cellWidth * 0.97, cellDepth * 0.97
+                    );
+                    geometry.rotateX(-Math.PI / 2);
+
+                    const material = new THREE.MeshBasicMaterial({
+                        color: 0x64b5f6,
+                        transparent: true,
+                        opacity: 0,
+                        depthWrite: false,
+                        side: THREE.DoubleSide
+                    });
+
+                    const tile = new THREE.Mesh(geometry, material);
+                    tile.position.set(
+                        -6 + (column + 0.5) * cellWidth,
+                        0,
+                        -4 + (row + 0.5) * cellDepth
+                    );
+                    tile.renderOrder = 3;
+                    group.add(tile);
+                    cells.push(tile);
+                }
+            }
+            heatmapCells.set(floorNumber, cells);
+        }
+    }
+
+    function heatmapColor(count, maxCount) {
+        if (count <= 0) return 0x64b5f6;
+        const ratio = count / Math.max(1, maxCount);
+        if (ratio <= 0.25) return 0x69f0ae;
+        if (ratio <= 0.50) return 0xffe66d;
+        if (ratio <= 0.75) return 0xffa45c;
+        return 0xff5c79;
+    }
+
+    function updateSpatialHeatmap(timeSeconds) {
+        const countsByFloor = new Map();
+        for (let floorNumber = 1; floorNumber <= 7; floorNumber++) {
+            countsByFloor.set(floorNumber, new Array(HEATMAP_COLUMNS * HEATMAP_ROWS).fill(0));
+        }
+
+        const atTime = videoDetections.filter(d =>
+            Math.abs(Number(d.timeSeconds) - Number(timeSeconds)) < 0.001
+        );
+
+        atTime.forEach(detection => {
+            const floorNumber = Number(detection.floor);
+            if (!countsByFloor.has(floorNumber)) return;
+
+            const x = Math.min(0.999999, Math.max(0, Number(detection.xCenter)));
+            const y = Math.min(0.999999, Math.max(0, Number(detection.yCenter)));
+            const column = Math.min(HEATMAP_COLUMNS - 1, Math.floor(x * HEATMAP_COLUMNS));
+            const row = Math.min(HEATMAP_ROWS - 1, Math.floor(y * HEATMAP_ROWS));
+            countsByFloor.get(floorNumber)[row * HEATMAP_COLUMNS + column]++;
+        });
+
+        const enabled = document.getElementById("heatmapToggle").checked;
+
+        for (let floorNumber = 1; floorNumber <= 7; floorNumber++) {
+            const values = countsByFloor.get(floorNumber);
+            const maxCount = Math.max(1, ...values);
+            const cells = heatmapCells.get(floorNumber) || [];
+            cells.forEach((tile, index) => {
+                const count = values[index];
+                tile.material.color.setHex(heatmapColor(count, maxCount));
+                tile.material.opacity = count === 0 ? 0 : 0.18 + 0.48 * (count / maxCount);
+                tile.visible = enabled && count > 0;
+            });
+
+            const group = heatmapGroups.get(floorNumber);
+            if (group) {
+                group.visible = enabled &&
+                    (selectedFloor === null || selectedFloor === floorNumber);
+            }
+        }
+    }
+
+    document.getElementById("heatmapToggle").addEventListener("change", () => {
+        if (videoTimestamps.length) {
+            const index = Number(document.getElementById("videoTimeSlider").value);
+            updateSpatialHeatmap(videoTimestamps[index] ?? videoTimestamps[0]);
+        } else {
+            heatmapGroups.forEach((group, floorNumber) => {
+                group.visible = document.getElementById("heatmapToggle").checked &&
+                    (selectedFloor === null || selectedFloor === floorNumber);
+            });
+        }
+    });
+
+    function clearVideoGhosts() {
+        videoGhostGroups.forEach(ghost => building.remove(ghost));
+        videoGhostGroups.length = 0;
+    }
+
+    function createVideoGhostForDetection(detection, congestion) {
+        const floorNumber = Number(detection.floor);
+        const x = -5.4 + Number(detection.xCenter) * 10.8;
+        const z = 3.2 - Number(detection.yCenter) * 6.4;
+        const y = floorY(floorNumber) + 0.55;
+
+        // Reuse the existing ghost appearance, then detach it from the
+        // simulation passenger collection so elevator logic cannot move it.
+        const previousLength = ghostGroups.length;
+        createGhost(x, y, z, floorNumber, congestion);
+        const ghost = ghostGroups.pop();
+        if (!ghost || ghostGroups.length !== previousLength) return;
+
+        ghost.position.set(x, y, z);
+        ghost.userData.videoDriven = true;
+        ghost.userData.personId = detection.personId;
+        ghost.userData.floorNumber = floorNumber;
+        ghost.userData.baseY = y;
+        ghost.userData.demoCongestion = congestion;
+        ghost.visible = selectedFloor === null || selectedFloor === floorNumber;
+        videoGhostGroups.push(ghost);
+    }
+
+    function renderVideoGhostsAtTime(timeSeconds) {
+        clearVideoGhosts();
+        if (!videoDetections.length) return;
+
+        const tolerance = 0.001;
+        const atTime = videoDetections.filter(d =>
+            Math.abs(Number(d.timeSeconds) - Number(timeSeconds)) < tolerance &&
+            (selectedFloor === null || Number(d.floor) === selectedFloor)
+        );
+
+        updateSpatialHeatmap(timeSeconds);
+
+        const countsByFloor = new Map();
+        videoObservations.forEach(row => {
+            if (Math.abs(Number(row.timeSeconds) - Number(timeSeconds)) < tolerance) {
+                countsByFloor.set(Number(row.floor), Number(row.peopleDetected));
+            }
+        });
+
+        atTime.forEach(detection => {
+            const count = countsByFloor.get(Number(detection.floor)) ?? atTime.length;
+            createVideoGhostForDetection(detection, classifyVideoCount(count));
+        });
+
+        document.getElementById("videoTimeLabel").textContent = Number(timeSeconds).toFixed(1) + " s";
+        document.getElementById("videoGhostCount").textContent =
+            atTime.length + " video ghosts at this timestamp";
+    }
+
+    function updateVideoTimeSlider() {
+        const slider = document.getElementById("videoTimeSlider");
+        slider.max = Math.max(0, videoTimestamps.length - 1);
+        slider.value = 0;
+        slider.disabled = videoTimestamps.length === 0;
+        if (videoTimestamps.length) {
+            renderVideoGhostsAtTime(videoTimestamps[0]);
+        }
+    }
+
+    document.getElementById("videoTimeSlider").addEventListener("input", event => {
+        const index = Number(event.target.value);
+        if (videoTimestamps[index] !== undefined) {
+            renderVideoGhostsAtTime(videoTimestamps[index]);
+        }
+    });
+
+    function classifyVideoCount(count) {
+        if (count <= 0) return "BLUE";
+        if (count <= 3) return "GREEN";
+        if (count <= 5) return "YELLOW";
+        if (count <= 10) return "ORANGE";
+        return "RED";
+    }
+
+    function observationsForFloor(floorNumber) {
+        return videoObservations
+            .filter(item => Number(item.floor) === floorNumber)
+            .sort((a, b) => Number(a.timeSeconds) - Number(b.timeSeconds));
+    }
+
+    function recolorFloorGhosts(floorNumber, level) {
+        const color = ghostColors[level] ?? ghostColors.GREEN;
+        ghostGroups.forEach(ghost => {
+            if (ghost.userData.floorNumber !== floorNumber) return;
+            const material = ghost.userData.bodyMaterial;
+            if (material) {
+                material.color.setHex(color);
+                material.emissive.setHex(color);
+                material.needsUpdate = true;
+            }
+            ghost.userData.videoCongestion = level;
+        });
+    }
+
+    function drawOccupancyChart(floorNumber) {
+        const canvas = document.getElementById("occupancyChart");
+        const ctx = canvas.getContext("2d");
+        const data = observationsForFloor(floorNumber);
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = "#18243b";
+        ctx.fillRect(0, 0, w, h);
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#e5edff";
+        ctx.fillText("Floor " + floorNumber + " occupancy", 16, 24);
+        if (!data.length) {
+            ctx.font = "13px Arial";
+            ctx.fillStyle = "#c4cbe0";
+            ctx.fillText("No video observations for this floor", 16, 100);
+            return;
+        }
+        const left = 42, right = 16, top = 42, bottom = 30;
+        const maxValue = Math.max(5, ...data.map(d => Number(d.peopleDetected)));
+        const plotW = w - left - right, plotH = h - top - bottom;
+        ctx.strokeStyle = "#52658c";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+            const y = top + plotH * i / 4;
+            ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(w-right, y); ctx.stroke();
+            ctx.fillStyle = "#c4cbe0"; ctx.font = "11px Arial";
+            ctx.fillText(String(Math.round(maxValue * (4-i) / 4)), 8, y+4);
+        }
+        const firstT = Number(data[0].timeSeconds);
+        const lastT = Number(data[data.length-1].timeSeconds);
+        const spanT = Math.max(0.001, lastT-firstT);
+        ctx.strokeStyle = "#69f0ae"; ctx.lineWidth = 3; ctx.beginPath();
+        data.forEach((d, i) => {
+            const x = left + ((Number(d.timeSeconds)-firstT)/spanT)*plotW;
+            const y = top + plotH - (Number(d.peopleDetected)/maxValue)*plotH;
+            if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        });
+        ctx.stroke();
+        data.forEach(d => {
+            const x = left + ((Number(d.timeSeconds)-firstT)/spanT)*plotW;
+            const y = top + plotH - (Number(d.peopleDetected)/maxValue)*plotH;
+            ctx.fillStyle = "#ffdf75"; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+        });
+        ctx.fillStyle = "#c4cbe0"; ctx.font = "11px Arial";
+        ctx.fillText(firstT.toFixed(1) + " s", left, h-8);
+        ctx.fillText(lastT.toFixed(1) + " s", w-right-36, h-8);
+    }
+
+    function refreshVideoDashboard(floorNumber) {
+        const data = observationsForFloor(floorNumber);
+        const status = document.getElementById("videoStatus");
+        if (!data.length) {
+            status.textContent = "Floor " + floorNumber + ": no video observations loaded.";
+            drawOccupancyChart(floorNumber);
+            return;
+        }
+        const latest = data[data.length - 1];
+        const level = classifyVideoCount(Number(latest.peopleDetected));
+        status.textContent = "Floor " + floorNumber + " • " + latest.peopleDetected +
+            " people detected • " + level + " • " + latest.timeSeconds + " s • " + data.length + " observations";
+        drawOccupancyChart(floorNumber);
+    }
+
+        function parseCSVLine(line) {
+        const result = [];
+        let value = "";
+        let insideQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+
+            if (char === '"') {
+                if (insideQuotes && line[i + 1] === '"') {
+                    value += '"';
+                    i++;
+                } else {
+                    insideQuotes = !insideQuotes;
+                }
+            } else if (char === "," && !insideQuotes) {
+                result.push(value.trim());
+                value = "";
+            } else {
+                value += char;
+            }
+        }
+
+        result.push(value.trim());
+        return result;
+    }
+
+    document.getElementById("videoJsonFile").addEventListener("change", async event => {
+console.log("PHANTOMBLOCK FILE UPLOAD EVENT FIRED!");
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        try {
+            const content = await file.text();
+            let rows = [];
+
+            if (file.name.toLowerCase().endsWith(".csv")) {
+                const lines = content.replace(/^\uFEFF/, "")
+                    .trim().split(/\r?\n/);
+
+                const headers = parseCSVLine(lines[0]).map(h =>
+                    h.trim().toLowerCase()
+                );
+
+                const floorIndex = headers.indexOf("floor");
+                const timeIndex = headers.indexOf("timestamp_seconds");
+                const peopleIndex = headers.indexOf("people_detected");
+
+                if (floorIndex === -1 || timeIndex === -1 || peopleIndex === -1) {
+                    throw new Error("CSV must contain Floor, Timestamp_Seconds and People_Detected columns.");
+                }
+
+                rows = lines.slice(1).map(line => {
+                    const values = parseCSVLine(line);
+
+                    return {
+                        floor: values[floorIndex],
+                        timeSeconds: values[timeIndex],
+                        peopleDetected: values[peopleIndex]
+                    };
+                });
+
+            } else {
+                const parsed = JSON.parse(content);
+                rows = Array.isArray(parsed) ? parsed : parsed.observations;
+
+                if (!Array.isArray(rows)) {
+                    throw new Error("JSON must contain an observations array.");
+                }
+            }
+
+            videoObservations = rows.map(row => ({
+                floor: Number(row.floor ?? row.floorNumber),
+                timeSeconds: Number(row.timeSeconds ?? row.timestampSeconds),
+                peopleDetected: Number(row.peopleDetected ?? row.contourCount ?? row.observedCount)
+            })).filter(row =>
+                Number.isInteger(row.floor) &&
+                row.floor >= 1 && row.floor <= 7 &&
+                Number.isFinite(row.timeSeconds) &&
+                row.timeSeconds >= 0 &&
+                Number.isInteger(row.peopleDetected) &&
+                row.peopleDetected >= 0
+            );
+
+            if (!videoObservations.length) {
+                throw new Error("No valid observations found in the file.");
+            }
+
+            for (let floorNumber = 1; floorNumber <= 7; floorNumber++) {
+                const floorRows = observationsForFloor(floorNumber);
+
+                if (floorRows.length) {
+                    const latest = floorRows[floorRows.length - 1];
+
+                    recolorFloorGhosts(
+                        floorNumber,
+                        classifyVideoCount(latest.peopleDetected)
+                    );
+                }
+            }
+
+            const visibleFloor = selectedFloor ?? 1;
+
+            refreshVideoDashboard(visibleFloor);
+            if (videoTimestamps.length) {
+                const sliderIndex = Number(document.getElementById("videoTimeSlider").value);
+                renderVideoGhostsAtTime(videoTimestamps[sliderIndex] ?? videoTimestamps[0]);
+            }
+
+            document.getElementById("status").textContent =
+                "📹 Video data loaded • " +
+                videoObservations.length + " observations";
+
+        } catch (error) {
+            document.getElementById("videoStatus").textContent =
+                "Could not load file: " + error.message;
+
+            console.error(error);
+        }
+    });
+    // Load individual YOLO + ByteTrack detections.
+    document.getElementById("detectionsCsvFile").addEventListener("change", async event => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        try {
+            const content = (await file.text()).replace(/^\uFEFF/, "").trim();
+            const lines = content.split(/\r?\n/);
+            if (lines.length < 2) throw new Error("The detections CSV has no data rows.");
+
+            const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+            const required = ["floor", "person_id", "timestamp_seconds", "x_center", "y_center"];
+            const indexes = {};
+            required.forEach(name => {
+                indexes[name] = headers.indexOf(name);
+                if (indexes[name] === -1) throw new Error("Missing CSV column: " + name);
+            });
+
+            videoDetections = lines.slice(1).filter(line => line.trim()).map(line => {
+                const values = parseCSVLine(line);
+                return {
+                    floor: Number(values[indexes.floor]),
+                    personId: values[indexes.person_id],
+                    timeSeconds: Number(values[indexes.timestamp_seconds]),
+                    xCenter: Number(values[indexes.x_center]),
+                    yCenter: Number(values[indexes.y_center])
+                };
+            }).filter(d =>
+                Number.isInteger(d.floor) && d.floor >= 1 && d.floor <= 7 &&
+                d.personId && Number.isFinite(d.timeSeconds) &&
+                Number.isFinite(d.xCenter) && d.xCenter >= 0 && d.xCenter <= 1 &&
+                Number.isFinite(d.yCenter) && d.yCenter >= 0 && d.yCenter <= 1
+            );
+
+            if (!videoDetections.length) throw new Error("No valid person detections found.");
+
+            videoTimestamps = [...new Set(videoDetections.map(d => Number(d.timeSeconds)))].sort((a,b) => a-b);
+            updateVideoTimeSlider();
+            document.getElementById("videoStatus").textContent =
+                "Loaded " + videoDetections.length + " person detections across " +
+                videoTimestamps.length + " timestamps. Scrub the timeline to view ghosts.";
+            document.getElementById("status").textContent = "👻 Video detections loaded • " + videoDetections.length + " records";
+        } catch (error) {
+            document.getElementById("videoStatus").textContent = "Could not load detections: " + error.message;
+            console.error(error);
+        }
+    });
+
+    // ==================================================
+    // 6. FLOOR SELECTION
+    // ==================================================
+
+    function selectFloor(number) {
+        selectedFloor = number;
+
+        floors.forEach((floor, index) => {
+            floor.visible =
+                number === null || index === number - 1;
+        });
+
+        ghostGroups.forEach(ghost => {
+            const data = ghost.userData;
+            ghost.visible = number === null || data.floorNumber === number;
+        });
+
+        videoGhostGroups.forEach(ghost => {
+            ghost.visible = number === null || ghost.userData.floorNumber === number;
+        });
+
+        elevators.forEach(lift => {
+            lift.car.visible = true;
+        });
+
+        if (videoTimestamps.length) {
+            const sliderIndex = Number(document.getElementById("videoTimeSlider").value);
+            renderVideoGhostsAtTime(videoTimestamps[sliderIndex] ?? videoTimestamps[0]);
+        }
+
+        else {
+            heatmapGroups.forEach((group, floorNumber) => {
+                group.visible = document.getElementById("heatmapToggle").checked &&
+                    (number === null || floorNumber === number);
+            });
+        }
+
+       
+document.getElementById("status").textContent =
+    number === null
+        ? "🏢 All floors visible • Tap a place"
+        : "🏢 Floor " + number + " selected • Tap a place";
+    }
+
+    document.querySelectorAll("[data-floor]").forEach(button => {
+        button.addEventListener("click", () => {
+            selectFloor(Number(button.dataset.floor));
+        });
+    });
+
+    document.getElementById("allFloors").addEventListener(
+        "click", () => selectFloor(null)
+    );
+
+    selectFloor(null);
+
+    // ==================================================
+    // 7. CLICKABLE FACILITIES
+    // ==================================================
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    let pointerDown = null;
+
+    renderer.domElement.addEventListener("pointerdown", event => {
+        pointerDown = {
+            x: event.clientX,
+            y: event.clientY
+        };
+    });
+
+    renderer.domElement.addEventListener("click", event => {
+        if (
+            pointerDown &&
+            Math.hypot(
+                event.clientX - pointerDown.x,
+                event.clientY - pointerDown.y
+            ) > 6
+        ) {
+            pointerDown = null;
+            return;
+        }
+
+        pointerDown = null;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+
+        pointer.x =
+            ((event.clientX - rect.left) / rect.width) * 2 - 1;
+
+        pointer.y =
+            -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(pointer, camera);
+
+        const hits = raycaster.intersectObjects(spaceZones, false);
+
+        
+if (hits.length > 0) {
+    const zone = hits[0].object;
+
+    document.getElementById("status").textContent =
+        "📍 " + zone.userData.spaceName +
+        "\nFloor " + zone.userData.floorNumber;
+} else {
+    document.getElementById("status").textContent =
+        "PhantomBlock • No place selected";
+}
+    });
+
+    // ==================================================
+    // 8. PASSENGER AND DOOR HELPERS
+    // ==================================================
+
+    function setGhostFloor(ghost, floorNumber) {
+        const data = ghost.userData;
+
+        data.floorNumber = floorNumber;
+        data.baseY = floorY(floorNumber) + 0.55;
+
+        ghost.position.y = data.baseY;
+        ghost.visible =
+            selectedFloor === null ||
+            selectedFloor === floorNumber;
+    }
+
+    function updateDoorPositions(lift) {
+        const openness = lift.doorsOpen ? 0.52 : 0;
+
+        lift.doors.forEach(({ mesh, side }) => {
+            mesh.position.x = side * (0.30 + openness);
+        });
+    }
+
+    function updatePassengerPositions(lift) {
+        lift.passengers.forEach((ghost, index) => {
+            const column = index % 2;
+            const row = Math.floor(index / 2);
+
+            ghost.position.set(
+                lift.car.position.x +
+                    (column === 0 ? -0.28 : 0.28),
+                lift.car.position.y + 0.08,
+                lift.car.position.z +
+                    (row === 0 ? -0.25 : 0.25)
+            );
+
+            const approximateFloor = Math.max(
+                1,
+                Math.min(
+                    7,
+                    Math.round(
+                        (lift.car.position.y - 0.85) / floorHeight
+                    ) + 1
+                )
+            );
+
+            ghost.userData.floorNumber = approximateFloor;
+            ghost.visible =
+                selectedFloor === null ||
+                selectedFloor === approximateFloor;
+        });
+    }
+
+    // ==================================================
+    // 9. ELEVATOR DESTINATION SELECTION
+    // ==================================================
+
+    function chooseNextDestination(lift) {
+        if (lift.passengers.length > 0) {
+            return lift.passengers[0].userData.destinationFloor;
+        }
+
+        let nearestFloor = null;
+        let nearestDistance = Infinity;
+
+        for (let floor = 1; floor <= 7; floor++) {
+            if (floor === lift.currentFloor) continue;
+
+            if (lift.waitingPassengers[floor - 1].length === 0) {
+                continue;
+            }
+
+            const distance = Math.abs(floor - lift.currentFloor);
+
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestFloor = floor;
+            }
+        }
+
+        return nearestFloor ?? lift.currentFloor;
+    }
+
+    // ==================================================
+    // 10. ELEVATOR SERVICE AND WAIT-TIME RECORDING
+    // ==================================================
+
+    function serviceLiftFloor(lift, time) {
+        lift.doorsOpen = true;
+        lift.dwellUntil = time + 1.5;
+
+        // Let passengers exit at their destination.
+        for (let i = lift.passengers.length - 1; i >= 0; i--) {
+            const ghost = lift.passengers[i];
+            const data = ghost.userData;
+
+            if (data.destinationFloor === lift.currentFloor) {
+                lift.passengers.splice(i, 1);
+
+                ghost.position.set(
+                    lift.car.position.x,
+                    floorY(lift.currentFloor) + 0.55,
+                    lift.car.position.z - 1.0
+                );
+
+                setGhostFloor(ghost, lift.currentFloor);
+
+                data.passengerState = "walking";
+                data.assignedElevator = null;
+                data.moving = false;
+                data.waitUntil = time + 0.8;
+
+                data.destinationFloor =
+                    lift.currentFloor === 7
+                        ? 1
+                        : lift.currentFloor + 1;
+            }
+        }
+
+        // Get the queue on this floor.
+        const queue =
+            lift.waitingPassengers[lift.currentFloor - 1];
+
+        if (lift.passengers.length === 0 && queue.length > 0) {
+            lift.targetFloor = queue[0].userData.destinationFloor;
+        }
+
+        let direction = Math.sign(
+            lift.targetFloor - lift.currentFloor
+        );
+
+        for (let i = 0; i < queue.length;) {
+            if (lift.passengers.length >= elevatorConfig.capacity) {
+                break;
+            }
+
+            const ghost = queue[i];
+
+            const passengerDirection = Math.sign(
+                ghost.userData.destinationFloor - lift.currentFloor
+            );
+
+            if (passengerDirection === 0) {
+                i++;
+                continue;
+            }
+
+            if (direction === 0) {
+                direction = passengerDirection;
+                lift.targetFloor = ghost.userData.destinationFloor;
+            }
+
+            if (passengerDirection === direction) {
+                queue.splice(i, 1);
+
+                const data = ghost.userData;
+
+                const waited =
+                    data.waitingSince !== null &&
+                    data.waitingSince !== undefined
+                        ? time - data.waitingSince
+                        : 0;
+
+                data.lastWaitTime = waited;
+                data.totalWaitTime =
+                    (data.totalWaitTime || 0) + waited;
+
+                lift.completedWaitTimes.push(waited);
+                data.waitingSince = null;
+
+                lift.passengers.push(ghost);
+                data.passengerState = "riding";
+                data.assignedElevator = lift.index;
+                data.moving = false;
+            } else {
+                i++;
+            }
+        }
+
+        lift.targetFloor = chooseNextDestination(lift);
+
+        updatePassengerPositions(lift);
+    }
+
+    // ==================================================
+    // 11. REQUEST AN ELEVATOR
+    // ==================================================
+
+    function requestElevator(ghost, time) {
+        const data = ghost.userData;
+
+        if (data.passengerState !== "walking") return;
+        if (data.destinationFloor === data.floorNumber) return;
+        if (time < data.liftRequestCooldown) return;
+
+        let bestLift = null;
+        let bestDistance = Infinity;
+
+        for (const lift of elevators) {
+            const hasRoomOrCanCollect =
+                lift.passengers.length < elevatorConfig.capacity ||
+                lift.waitingPassengers.some(queue => queue.length > 0);
+
+            const distance = Math.abs(
+                lift.currentFloor - data.floorNumber
+            );
+
+            if (!hasRoomOrCanCollect) {
+                if (lift.passengers.length > 0) continue;
+            }
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestLift = lift;
+            }
+        }
+
+        if (!bestLift) return;
+
+        data.assignedElevator = bestLift.index;
+        data.passengerState = "walkingToLift";
+        data.moving = false;
+    }
+    // ==================================================
+    // 12. GHOST MOVEMENT
+    // ==================================================
+
+    const clock = new THREE.Clock();
+
+    function updateGhostMovement(delta, time) {
+        ghostGroups.forEach(ghost => {
+            const data = ghost.userData;
+
+            if (data.passengerState === "riding") {
+                return;
+            }
+
+            if (data.passengerState === "waiting") {
+                const lift = elevators[data.assignedElevator];
+                if (!lift) return;
+
+                const queue =
+                    lift.waitingPassengers[data.floorNumber - 1];
+
+                const queueIndex = queue.indexOf(ghost);
+
+                if (queueIndex >= 0) {
+                    ghost.position.set(
+                        lift.car.position.x +
+                            (queueIndex % 2 === 0 ? -0.35 : 0.35),
+                        floorY(data.floorNumber) + 0.55,
+                        lift.car.position.z - 1.0 -
+                            Math.floor(queueIndex / 2) * 0.45
+                    );
+                }
+
+                return;
+            }
+
+            if (data.passengerState === "walkingToLift") {
+                const lift = elevators[data.assignedElevator];
+                if (!lift) return;
+
+                const targetX = lift.car.position.x;
+                const targetZ = lift.car.position.z - 1.0;
+
+                const dx = targetX - ghost.position.x;
+                const dz = targetZ - ghost.position.z;
+                const distance = Math.hypot(dx, dz);
+                const movement = data.speed * delta;
+
+                if (distance <= movement + 0.04) {
+                    ghost.position.x = targetX;
+                    ghost.position.z = targetZ;
+
+                    const queue =
+                        lift.waitingPassengers[data.floorNumber - 1];
+
+                    if (!queue.includes(ghost)) {
+                        queue.push(ghost);
+                        data.waitingSince = time;
+                    }
+
+                    data.passengerState = "waiting";
+
+                    if (
+                        !lift.moving &&
+                        lift.currentFloor === data.floorNumber &&
+                        time >= lift.dwellUntil
+                    ) {
+                        serviceLiftFloor(lift, time);
+                    }
+                } else if (distance > 0) {
+                    ghost.position.x += dx / distance * movement;
+                    ghost.position.z += dz / distance * movement;
+                    ghost.rotation.y = Math.atan2(dx, dz);
+                }
+
+                return;
+            }
+
+            ghost.position.y =
+                data.baseY +
+                Math.sin(time * 1.8 + data.phase) * 0.09;
+
+            if (time < data.waitUntil) return;
+
+            // Occasionally request a trip to another floor.
+            if (
+                data.passengerState === "walking" &&
+                data.destinationFloor !== data.floorNumber &&
+                Math.random() < 0.004
+            ) {
+                requestElevator(ghost, time);
+
+                if (data.passengerState === "walkingToLift") {
+                    return;
+                }
+            }
+
+            if (!data.moving) {
+                let destination;
+
+                do {
+                    destination = Math.floor(
+                        Math.random() * corridorNodes.length
+                    );
+                } while (destination === data.routeNode);
+
+                data.targetNode = destination;
+
+                const forward =
+                    (destination - data.routeNode +
+                        corridorNodes.length) %
+                    corridorNodes.length;
+
+                const backward =
+                    (data.routeNode - destination +
+                        corridorNodes.length) %
+                    corridorNodes.length;
+
+                data.routeDirection =
+                    forward <= backward ? 1 : -1;
+
+                data.moving = true;
+            }
+
+            const nextNode =
+                (data.routeNode + data.routeDirection +
+                    corridorNodes.length) %
+                corridorNodes.length;
+
+            const target = corridorNodes[nextNode];
+            const dx = target[0] - ghost.position.x;
+            const dz = target[1] - ghost.position.z;
+            const distance = Math.hypot(dx, dz);
+            const movement = data.speed * delta;
+
+            if (distance <= movement + 0.025) {
+                ghost.position.x = target[0];
+                ghost.position.z = target[1];
+                data.routeNode = nextNode;
+
+                if (data.routeNode === data.targetNode) {
+                    data.moving = false;
+                    data.waitUntil =
+                        time + 0.8 + Math.random() * 2.2;
+                }
+            } else if (distance > 0) {
+                ghost.position.x += dx / distance * movement;
+                ghost.position.z += dz / distance * movement;
+            }
+
+            if (distance > 0.01) {
+                ghost.rotation.y = Math.atan2(dx, dz);
+            }
+        });
+    }
+
+    // ==================================================
+    // 13. ELEVATOR DASHBOARD CALCULATIONS
+    // ==================================================
+
+    function getLongestWait(lift, time) {
+        let longest = 0;
+
+        for (const queue of lift.waitingPassengers) {
+            for (const ghost of queue) {
+                const since = ghost.userData.waitingSince;
+
+                if (since !== null && since !== undefined) {
+                    longest = Math.max(longest, time - since);
+                }
+            }
+        }
+
+        return longest;
+    }
+
+    function getAverageWait(lift) {
+        const completedWaits = lift.completedWaitTimes;
+
+        if (completedWaits.length === 0) {
+            return 0;
+        }
+
+        const total = completedWaits.reduce(
+            (sum, wait) => sum + wait,
+            0
+        );
+
+        return total / completedWaits.length;
+    }
+
+    function updateLiftDashboard(time) {
+        elevators.forEach((lift, index) => {
+            const passengerCount = lift.passengers.length;
+
+            const waitingCount = lift.waitingPassengers.reduce(
+                (total, queue) => total + queue.length,
+                0
+            );
+
+            const destination = lift.moving
+                ? lift.targetFloor
+                : lift.currentFloor;
+
+            const movementStatus = lift.moving
+                ? "Moving → Floor " + destination
+                : lift.doorsOpen
+                    ? "Doors open"
+                    : "Idle";
+
+            const text =
+                "Current floor: " + lift.currentFloor + "\n" +
+                "Passengers: " + passengerCount +
+                    " / " + elevatorConfig.capacity + "\n" +
+                "Destination: Floor " + destination + "\n" +
+                "Status: " + movementStatus + "\n" +
+                "Waiting ghosts: " + waitingCount + "\n" +
+                "Longest current wait: " +
+                    getLongestWait(lift, time).toFixed(1) + " s\n" +
+                "Average completed wait: " +
+                    getAverageWait(lift).toFixed(1) + " s";
+
+            document.getElementById(
+                index === 0 ? "lift1Status" : "lift2Status"
+            ).textContent =
+                (index === 0 ? "LIFT A\n" : "LIFT B\n") + text;
+        });
+    }
+
+    // ==================================================
+    // 14. ELEVATOR CONTROLLER
+    // ==================================================
+
+    function updateElevators(delta, time) {
+        elevators.forEach(lift => {
+            if (lift.moving) {
+                const stopFloor = lift.nextStopFloor;
+
+                if (stopFloor == null) {
+                    lift.moving = false;
+                    return;
+                }
+
+                lift.doorsOpen = false;
+
+                const targetY = carY(stopFloor);
+                const difference = targetY - lift.car.position.y;
+                const movement = lift.speed * delta;
+
+                if (Math.abs(difference) <= movement) {
+                    lift.car.position.y = targetY;
+                    lift.currentFloor = stopFloor;
+                    lift.nextStopFloor = null;
+                    lift.moving = false;
+
+                    serviceLiftFloor(lift, time);
+                } else {
+                    lift.car.position.y +=
+                        Math.sign(difference) * movement;
+                }
+            } else if (time >= lift.dwellUntil) {
+                lift.doorsOpen = false;
+
+                const currentQueue =
+                    lift.waitingPassengers[lift.currentFloor - 1];
+
+                if (
+                    currentQueue.length > 0 &&
+                    lift.passengers.length < elevatorConfig.capacity
+                ) {
+                    serviceLiftFloor(lift, time);
+                } else {
+                    const nextFloor = chooseNextDestination(lift);
+
+                    if (nextFloor !== lift.currentFloor) {
+                        lift.targetFloor = nextFloor;
+
+                        lift.nextStopFloor =
+                            lift.currentFloor +
+                            Math.sign(nextFloor - lift.currentFloor);
+
+                        lift.moving = true;
+                    } else {
+                        lift.targetFloor = lift.currentFloor;
+                        lift.nextStopFloor = null;
+                        lift.moving = false;
+                    }
+                }
+            }
+
+            updateDoorPositions(lift);
+            updatePassengerPositions(lift);
+        });
+    }
+
+    // ==================================================
+    // 15. MAIN ANIMATION
+    // ==================================================
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        const delta = Math.min(clock.getDelta(), 0.05);
+        const time = performance.now() * 0.001;
+
+        updateGhostMovement(delta, time);
+        updateElevators(delta, time);
+        updateLiftDashboard(time);
+
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    // ==================================================
+    // 16. RESIZE AND START
+    // ==================================================
+
+    window.addEventListener("resize", () => {
+        camera.aspect =
+            window.innerWidth / window.innerHeight;
+
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(
+            window.innerWidth,
+            window.innerHeight
+        );
+    });
+
+    document.getElementById("status").textContent =
+    "🏢 PhantomBlock • Tap a place to inspect it";
+    drawOccupancyChart(1);
+
+    animate();
+
+} catch (error) {
+    console.error(error);
+
+    errorBox.style.display = "block";
+    errorBox.textContent =
+        "PhantomBlock could not initialise:\n" +
+        (error.stack || String(error));
+
+    document.getElementById("status").textContent =
+        "Initialisation error — see message below";
+}
+</script>
+</body>
+</html>
